@@ -1,0 +1,94 @@
+name: Build PRISM Analysis
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reassemble baseline native source
+        shell: pwsh
+        run: |
+          $parts = @(
+            "build/parts/00.b64",
+            "build/parts/01.b64",
+            "build/parts/02.b64",
+            "build/parts/03a.b64",
+            "build/parts/03b.b64",
+            "build/parts/03c.b64",
+            "build/parts/03d.b64",
+            "build/parts/04.b64"
+          )
+          $b64 = ($parts | ForEach-Object { (Get-Content $_ -Raw).Trim() }) -join ""
+          [IO.File]::WriteAllBytes("prism.cpp.gz", [Convert]::FromBase64String($b64))
+          $input = [IO.File]::OpenRead("prism.cpp.gz")
+          $gzip = [IO.Compression.GzipStream]::new($input, [IO.Compression.CompressionMode]::Decompress)
+          $output = [IO.File]::Create("prism.cpp")
+          $gzip.CopyTo($output)
+          $output.Dispose(); $gzip.Dispose(); $input.Dispose()
+
+      - name: Apply true analyzer patch
+        shell: pwsh
+        run: |
+          $b64 = ((Get-Content "build/patches/vnext_00.b64" -Raw).Trim() + (Get-Content "build/patches/vnext_01.b64" -Raw).Trim())
+          [IO.File]::WriteAllBytes("vnext.patch.gz", [Convert]::FromBase64String($b64))
+          $input = [IO.File]::OpenRead("vnext.patch.gz")
+          $gzip = [IO.Compression.GzipStream]::new($input, [IO.Compression.CompressionMode]::Decompress)
+          $output = [IO.File]::Create("vnext.patch")
+          $gzip.CopyTo($output)
+          $output.Dispose(); $gzip.Dispose(); $input.Dispose()
+          (Get-Content "vnext.patch" -Raw).Replace("prism_build/prism.cpp","prism.cpp") | Set-Content "vnext-root.patch" -NoNewline
+          git apply -p0 --unsafe-paths "vnext-root.patch"
+
+      - name: Apply dB hover patch
+        shell: pwsh
+        run: |
+          (Get-Content "build/patches/hover_db.patch" -Raw).Replace("prism_build/prism.cpp","prism.cpp") | Set-Content "hover-root.patch" -NoNewline
+          git apply -p0 --unsafe-paths "hover-root.patch"
+
+      - name: Apply semantic orb modes patch
+        shell: pwsh
+        run: |
+          $b64 = ((Get-Content "build/patches/orb_modes_00.b64" -Raw).Trim() + (Get-Content "build/patches/orb_modes_01.b64" -Raw).Trim())
+          [IO.File]::WriteAllBytes("orb.patch.gz", [Convert]::FromBase64String($b64))
+          $input = [IO.File]::OpenRead("orb.patch.gz")
+          $gzip = [IO.Compression.GzipStream]::new($input, [IO.Compression.CompressionMode]::Decompress)
+          $output = [IO.File]::Create("orb.patch")
+          $gzip.CopyTo($output)
+          $output.Dispose(); $gzip.Dispose(); $input.Dispose()
+          (Get-Content "orb.patch" -Raw).Replace("prism_build/prism.cpp","prism.cpp") | Set-Content "orb-root.patch" -NoNewline
+          git apply -p0 --unsafe-paths "orb-root.patch"
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Compile native Windows x64 executable
+        shell: cmd
+        run: >
+          cl /nologo /O2 /W3 /EHsc /std:c++17 /MT
+          prism.cpp
+          /link /SUBSYSTEM:WINDOWS /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA
+          user32.lib gdi32.lib ole32.lib winmm.lib kernel32.lib
+          /OUT:PRISM_LAB_ORBMODES.exe
+
+      - name: Verify executable
+        shell: pwsh
+        run: |
+          Get-Item .\PRISM_LAB_ORBMODES.exe | Format-List Name,Length,LastWriteTime
+          Get-FileHash .\PRISM_LAB_ORBMODES.exe -Algorithm SHA256 | Format-List
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PRISM_LAB_ORBMODES
+          path: |
+            PRISM_LAB_ORBMODES.exe
+            prism.cpp
+          if-no-files-found: error
