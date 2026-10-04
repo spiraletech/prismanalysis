@@ -8,9 +8,19 @@ It captures system audio locally through Windows audio interfaces and renders a 
 
 **PRISM_LAB_ORBMODES.exe**
 
-SHA-256:
+The repository rebuilds the current native executable on Windows through GitHub Actions.
+
+[Download the latest Actions build](https://github.com/spiraletech/prismanalysis/actions/workflows/build.yml)
+
+Latest verified CI executable SHA-256:
+
+`19c9ffa0fff80e08605010630c88505e60e1f70dcc593ea215e43ee6d9b0f3dc`
+
+The originally compiled build from the development session had SHA-256:
 
 `fe35932df6a3eea6b7e2930926e57c3e7f252a1fb491d13749df9966708b1de5`
+
+The binary hashes differ because separate MSVC/linker invocations can embed build metadata; the checked-in source/patch pipeline contains the current PRISM feature set.
 
 ## Core features
 
